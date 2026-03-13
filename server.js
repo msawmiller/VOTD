@@ -1,0 +1,1520 @@
+import express from 'express';
+import { readFileSync } from 'fs';
+import { Vibrant } from 'node-vibrant/node';
+
+const app = express();
+const PORT = 3000;
+
+const BIBLE_VERSION_ID = 111; // NIV
+const VOTD_API = 'https://bible.youversionapi.com/3.3/verse_of_the_day.json';
+const VERSES_API = 'https://bible.youversionapi.com/3.3/verses.json';
+const VOTD_PAGE = 'https://www.bible.com/verse-of-the-day';
+const MOMENTS_API = 'https://moments.youversionapi.com/3.1/votd.json?language_tag=en';
+const IMAGE_PROXY_BASE = 'https://imageproxy.youversionapi.com/1280x1280/https://s3.amazonaws.com/static-youversionapi-com/images/base';
+
+const YV_HEADERS = {
+  'X-YouVersion-Client': 'youversion',
+  'X-YouVersion-App-Platform': 'ios',
+  'X-YouVersion-App-Version': '2025211',
+  'Referer': 'https://ios.youversionapi.com',
+};
+
+// Load scraped header/footer
+let layout = { headerHTML: '', footerHTML: '' };
+try {
+  layout = JSON.parse(readFileSync('scraped-layout.json', 'utf8'));
+
+  // Wrap center items (nav links + search) and right items in grouping divs
+  // so CSS grid can truly center the middle section
+  layout.headerHTML = layout.headerHTML
+    .replace(
+      '<div class="hidden lg:flex">',
+      '<div class="nav-center"><div class="hidden lg:flex">'
+    )
+    .replace(
+      '<a class="hidden whitespace-nowrap',
+      '</div><div class="nav-right"><a class="hidden whitespace-nowrap'
+    )
+    .replace(
+      '</div></header>',
+      '</div></div></header>'
+    );
+} catch {
+  console.warn('scraped-layout.json not found — run: node scrape-layout.js');
+}
+
+// VOTD cache — refreshes every hour
+let cache = null;
+let cacheDate = null;
+let votdCalendar = null; // full 366-day calendar for search
+
+const USFM_BOOKS = {
+  'genesis': 'GEN', 'gen': 'GEN',
+  'exodus': 'EXO', 'exo': 'EXO', 'ex': 'EXO',
+  'leviticus': 'LEV', 'lev': 'LEV',
+  'numbers': 'NUM', 'num': 'NUM',
+  'deuteronomy': 'DEU', 'deu': 'DEU', 'deut': 'DEU', 'dt': 'DEU',
+  'joshua': 'JOS', 'jos': 'JOS', 'josh': 'JOS',
+  'judges': 'JDG', 'jdg': 'JDG', 'judg': 'JDG',
+  'ruth': 'RUT', 'rut': 'RUT',
+  '1 samuel': '1SA', '1samuel': '1SA', '1sa': '1SA', '1 sam': '1SA', '1sam': '1SA',
+  '2 samuel': '2SA', '2samuel': '2SA', '2sa': '2SA', '2 sam': '2SA', '2sam': '2SA',
+  '1 kings': '1KI', '1kings': '1KI', '1ki': '1KI', '1 kgs': '1KI',
+  '2 kings': '2KI', '2kings': '2KI', '2ki': '2KI', '2 kgs': '2KI',
+  '1 chronicles': '1CH', '1chronicles': '1CH', '1ch': '1CH', '1 chr': '1CH',
+  '2 chronicles': '2CH', '2chronicles': '2CH', '2ch': '2CH', '2 chr': '2CH',
+  'ezra': 'EZR', 'ezr': 'EZR',
+  'nehemiah': 'NEH', 'neh': 'NEH',
+  'esther': 'EST', 'est': 'EST',
+  'job': 'JOB',
+  'psalms': 'PSA', 'psalm': 'PSA', 'psa': 'PSA', 'ps': 'PSA',
+  'proverbs': 'PRO', 'proverb': 'PRO', 'pro': 'PRO', 'prov': 'PRO',
+  'ecclesiastes': 'ECC', 'ecc': 'ECC', 'eccl': 'ECC',
+  'song of solomon': 'SNG', 'song': 'SNG', 'sng': 'SNG', 'sos': 'SNG',
+  'isaiah': 'ISA', 'isa': 'ISA',
+  'jeremiah': 'JER', 'jer': 'JER',
+  'lamentations': 'LAM', 'lam': 'LAM',
+  'ezekiel': 'EZK', 'ezk': 'EZK', 'eze': 'EZK',
+  'daniel': 'DAN', 'dan': 'DAN',
+  'hosea': 'HOS', 'hos': 'HOS',
+  'joel': 'JOL', 'jol': 'JOL',
+  'amos': 'AMO', 'amo': 'AMO',
+  'obadiah': 'OBA', 'oba': 'OBA',
+  'jonah': 'JON', 'jon': 'JON',
+  'micah': 'MIC', 'mic': 'MIC',
+  'nahum': 'NAM', 'nam': 'NAM',
+  'habakkuk': 'HAB', 'hab': 'HAB',
+  'zephaniah': 'ZEP', 'zep': 'ZEP',
+  'haggai': 'HAG', 'hag': 'HAG',
+  'zechariah': 'ZEC', 'zec': 'ZEC', 'zech': 'ZEC',
+  'malachi': 'MAL', 'mal': 'MAL',
+  'matthew': 'MAT', 'matt': 'MAT', 'mat': 'MAT', 'mt': 'MAT',
+  'mark': 'MRK', 'mrk': 'MRK', 'mk': 'MRK',
+  'luke': 'LUK', 'luk': 'LUK', 'lk': 'LUK',
+  'john': 'JHN', 'jhn': 'JHN', 'jn': 'JHN',
+  'acts': 'ACT', 'act': 'ACT',
+  'romans': 'ROM', 'rom': 'ROM',
+  '1 corinthians': '1CO', '1corinthians': '1CO', '1co': '1CO', '1 cor': '1CO', '1cor': '1CO',
+  '2 corinthians': '2CO', '2corinthians': '2CO', '2co': '2CO', '2 cor': '2CO', '2cor': '2CO',
+  'galatians': 'GAL', 'gal': 'GAL',
+  'ephesians': 'EPH', 'eph': 'EPH',
+  'philippians': 'PHP', 'php': 'PHP', 'phil': 'PHP',
+  'colossians': 'COL', 'col': 'COL',
+  '1 thessalonians': '1TH', '1thessalonians': '1TH', '1th': '1TH', '1 thess': '1TH', '1thess': '1TH',
+  '2 thessalonians': '2TH', '2thessalonians': '2TH', '2th': '2TH', '2 thess': '2TH', '2thess': '2TH',
+  '1 timothy': '1TI', '1timothy': '1TI', '1ti': '1TI', '1 tim': '1TI', '1tim': '1TI',
+  '2 timothy': '2TI', '2timothy': '2TI', '2ti': '2TI', '2 tim': '2TI', '2tim': '2TI',
+  'titus': 'TIT', 'tit': 'TIT',
+  'philemon': 'PHM', 'phm': 'PHM',
+  'hebrews': 'HEB', 'heb': 'HEB',
+  'james': 'JAS', 'jas': 'JAS',
+  '1 peter': '1PE', '1peter': '1PE', '1pe': '1PE', '1 pet': '1PE', '1pet': '1PE',
+  '2 peter': '2PE', '2peter': '2PE', '2pe': '2PE', '2 pet': '2PE', '2pet': '2PE',
+  '1 john': '1JN', '1john': '1JN', '1jn': '1JN',
+  '2 john': '2JN', '2john': '2JN', '2jn': '2JN',
+  '3 john': '3JN', '3john': '3JN', '3jn': '3JN',
+  'jude': 'JUD', 'jud': 'JUD',
+  'revelation': 'REV', 'rev': 'REV', 'revelations': 'REV',
+};
+
+const USFM_TO_HUMAN = {};
+for (const [name, code] of Object.entries(USFM_BOOKS)) {
+  if (!USFM_TO_HUMAN[code] || name.length > USFM_TO_HUMAN[code].length) {
+    USFM_TO_HUMAN[code] = name.charAt(0).toUpperCase() + name.slice(1);
+  }
+}
+
+function dayToDate(dayNum) {
+  const year = new Date().getFullYear();
+  const d = new Date(year, 0, dayNum);
+  return d.toISOString().slice(0, 10);
+}
+
+function usfmToHuman(usfm) {
+  const parts = usfm.split('.');
+  const book = USFM_TO_HUMAN[parts[0]] || parts[0];
+  return parts.length === 3 ? `${book} ${parts[1]}:${parts[2]}` : parts.length === 2 ? `${book} ${parts[1]}` : book;
+}
+
+function parseQuery(q) {
+  q = q.trim().toLowerCase();
+  const match = q.match(/^(.+?)\s+(\d+)(?::(\d+))?$/);
+  if (match) {
+    const bookName = match[1].trim();
+    const chapter = match[2];
+    const verse = match[3];
+    const bookCode = USFM_BOOKS[bookName];
+    if (bookCode) {
+      const usfmPattern = verse ? `${bookCode}.${chapter}.${verse}` : `${bookCode}.${chapter}.`;
+      return { bookCode, chapter, verse, usfmPattern, type: verse ? 'exact' : 'chapter' };
+    }
+  }
+  const bookCode = USFM_BOOKS[q];
+  if (bookCode) return { bookCode, usfmPattern: bookCode + '.', type: 'book' };
+  return null;
+}
+
+function searchCalendar(query) {
+  if (!votdCalendar) return [];
+  const parsed = parseQuery(query);
+  if (!parsed) return [];
+
+  return votdCalendar
+    .filter((entry) => {
+      return entry.usfm.some((u) => {
+        if (parsed.type === 'exact') return u === parsed.usfmPattern;
+        return u.startsWith(parsed.usfmPattern);
+      });
+    })
+    .map((entry) => ({
+      day: entry.day,
+      date: dayToDate(entry.day),
+      dateFormatted: new Date(new Date().getFullYear(), 0, entry.day)
+        .toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+      references: entry.usfm.map(usfmToHuman),
+    }));
+}
+
+function dayOfYear(date) {
+  const d = date || new Date();
+  const start = new Date(d.getFullYear(), 0, 0);
+  return Math.floor((d - start) / 86400000);
+}
+
+function stripHtml(html) {
+  // Extract text only from <span class="content"> nodes, preserving multi-part verses
+  const matches = [...html.matchAll(/class="content"[^>]*>([^<]+)</g)];
+  return matches.map((m) => m[1]).join('').trim();
+}
+
+function formatDate(date) {
+  return date.toLocaleDateString('en-US', {
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
+// ── Color helpers ──
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, l = (max + min) / 2;
+  if (max === min) { h = s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  return [Math.round(h * 360), Math.round(s * 100), Math.round(l * 100)];
+}
+
+function hsl(h, s, l) { return `hsl(${h}, ${s}%, ${l}%)`; }
+
+function ensureContrast(fgHsl, bgHsl, minDiff = 40) {
+  const [fh, fs, fl] = fgHsl;
+  const [, , bl] = bgHsl;
+  if (Math.abs(fl - bl) >= minDiff) return hsl(fh, fs, fl);
+  return bl > 50 ? hsl(fh, fs, Math.max(fl, 8)) : hsl(fh, fs, Math.min(fl, 95));
+}
+
+async function extractPalette(imageUrl) {
+  const defaults = {
+    panelBg: '#e1d5cc',
+    textColor: '#121212',
+    accentColor: '#c83f0c',
+    barDark: '#10100f',
+    barAccent: '#c83f0c',
+    deeperBg: '#f5f0ea',
+    cardBg: '#ffffff',
+    linkColor: '#c83f0c',
+    eyebrowDateBg: '#ffffff',
+    highlightColor: 'rgba(243, 63, 5, 0.2)',
+  };
+
+  if (!imageUrl) return defaults;
+
+  try {
+    const palette = await Vibrant.from(imageUrl).getPalette();
+
+    const muted = palette.Muted?.rgb;
+    const darkMuted = palette.DarkMuted?.rgb;
+    const darkVibrant = palette.DarkVibrant?.rgb;
+    const vibrant = palette.Vibrant?.rgb;
+    const lightMuted = palette.LightMuted?.rgb;
+    const lightVibrant = palette.LightVibrant?.rgb;
+
+    // Panel bg: a soft, desaturated tint from the muted swatch
+    const panelBase = muted || lightMuted || [225, 213, 204];
+    const [ph, ps, pl] = rgbToHsl(...panelBase);
+    const panelBg = hsl(ph, Math.min(ps, 25), Math.max(pl, 78));
+
+    // Text: darkest available swatch, guaranteed high contrast
+    const textBase = darkMuted || darkVibrant || [18, 18, 18];
+    const [th, ts, tl] = rgbToHsl(...textBase);
+    const textColor = ensureContrast([th, Math.min(ts, 15), Math.min(tl, 15)], [ph, ps, Math.max(pl, 78)]);
+
+    // Accent: the vibrant or dark vibrant — the editorial "pop"
+    const accentBase = vibrant || darkVibrant || [200, 63, 12];
+    const [ah, as, al] = rgbToHsl(...accentBase);
+    const accentColor = hsl(ah, Math.max(as, 50), Math.min(Math.max(al, 35), 50));
+
+    // Bar dark: derived from darkMuted, very dark
+    const barBase = darkMuted || [16, 16, 15];
+    const [bh, bs, bl] = rgbToHsl(...barBase);
+    const barDark = hsl(bh, Math.min(bs, 20), Math.min(bl, 12));
+
+    // Bar accent: same hue as accent but deeper saturation
+    const barAccent = hsl(ah, Math.max(as, 60), Math.min(Math.max(al, 30), 45));
+
+    // Deeper bg: very light tint from light muted
+    const deeperBase = lightMuted || lightVibrant || [245, 240, 234];
+    const [dh, ds, dl] = rgbToHsl(...deeperBase);
+    const deeperBg = hsl(dh, Math.min(ds, 20), Math.max(dl, 92));
+
+    // Card bg: near-white with a hint of the palette's warmth
+    const cardBg = hsl(ph, Math.min(ps, 10), 98);
+
+    // Link color: same as accent
+    const linkColor = accentColor;
+
+    // Eyebrow date badge: white with a whisper of warmth
+    const eyebrowDateBg = hsl(ph, Math.min(ps, 12), 97);
+
+    // Highlight behind verse text: accent at very low opacity
+    const highlightColor = `hsla(${ah}, ${Math.max(as, 40)}%, ${Math.min(Math.max(al, 40), 60)}%, 0.18)`;
+
+    return { panelBg, textColor, accentColor, barDark, barAccent, deeperBg, cardBg, linkColor, eyebrowDateBg, highlightColor };
+  } catch (e) {
+    console.warn('Palette extraction failed, using defaults:', e.message);
+    return defaults;
+  }
+}
+
+async function fetchVOTD(targetDate) {
+  const dateObj = targetDate ? new Date(targetDate + 'T00:00:00') : new Date();
+  const day = dayOfYear(dateObj);
+
+  const calRes = await fetch(VOTD_API);
+  const calJson = await calRes.json();
+  const entry = calJson.response.data.find((d) => d.day === day);
+  if (!entry) throw new Error(`No VOTD entry found for day ${day}`);
+
+  const usfm = entry.references.join('+');
+
+  const verseUrl = `${VERSES_API}?id=${BIBLE_VERSION_ID}&references[]=${encodeURIComponent(usfm)}`;
+  const verseRes = await fetch(verseUrl);
+  const verseJson = await verseRes.json();
+  const verseData = verseJson.response?.data?.verses?.[0];
+  if (!verseData) throw new Error('No verse data returned from API');
+
+  const reference = verseData.reference.human;
+  const verseText = stripHtml(verseData.content);
+
+  // Fetch the official VOTD image via the moments API (image_id → imageproxy URL)
+  let imageUrl = null;
+  try {
+    const momentsRes = await fetch(MOMENTS_API, { headers: YV_HEADERS });
+    const momentsJson = await momentsRes.json();
+    const momentsList = momentsJson.response?.data ?? [];
+    const todayMoment = momentsList.find((d) => d.day === day);
+    if (todayMoment?.image_id) {
+      imageUrl = `${IMAGE_PROXY_BASE}/${todayMoment.image_id}/1280x1280.jpg`;
+      console.log(`VOTD image: id=${todayMoment.image_id} → ${imageUrl}`);
+    }
+  } catch (e) {
+    console.warn('Could not fetch VOTD image from moments API:', e.message);
+  }
+
+  // Fallback: scrape the OG image from bible.com VOTD page
+  if (!imageUrl) {
+    try {
+      const pageRes = await fetch(VOTD_PAGE, {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
+      });
+      const html = await pageRes.text();
+      const match = html.match(/og:image" content="([^"]+)"/);
+      imageUrl = match?.[1] ?? null;
+      if (imageUrl) console.log('VOTD image (OG fallback):', imageUrl);
+    } catch {
+      console.warn('OG image fallback also failed.');
+    }
+  }
+
+  // Find a pre-made vertical (1080x1920) verse image for the share card
+  let shareImageUrl = null;
+  try {
+    const imgSearchRes = await fetch(
+      `https://search.youversionapi.com/4.0/images?query=${encodeURIComponent(usfm)}&bible_version_id=${BIBLE_VERSION_ID}`,
+      { headers: { 'Accept-Language': 'en' } }
+    );
+    const imgSearchJson = await imgSearchRes.json();
+    const candidates = imgSearchJson.data || [];
+
+    // Prefer exact USFM matches, then fall back to any result
+    const sorted = [
+      ...candidates.filter((img) => img.usfms.some((u) => usfm.includes(u))),
+      ...candidates.filter((img) => !img.usfms.some((u) => usfm.includes(u))),
+    ];
+
+    for (const img of sorted) {
+      const verticalUrl = `https://imageproxy.youversionapi.com/640x640/https://s3.amazonaws.com/static-youversionapi-com/images/base/${img.id}/1080x1920.jpg`;
+      try {
+        const head = await fetch(verticalUrl, { method: 'HEAD' });
+        if (head.ok) {
+          shareImageUrl = verticalUrl.replace('640x640', '320x568');
+          console.log(`Share image: id=${img.id} (vertical 1080x1920)`);
+          break;
+        }
+      } catch { /* try next */ }
+    }
+  } catch (e) {
+    console.warn('Could not find vertical share image:', e.message);
+  }
+
+  const theme = await extractPalette(imageUrl);
+
+  return {
+    day,
+    date: formatDate(dateObj),
+    usfm,
+    reference,
+    verseText,
+    imageUrl,
+    shareImageUrl,
+    theme,
+    sourceUrl: `https://www.bible.com/verse-of-the-day`,
+    fetchedAt: new Date().toISOString(),
+  };
+}
+
+function isCacheStale() {
+  if (!cache || !cacheDate) return true;
+  return (new Date() - cacheDate) / 1000 / 60 > 60;
+}
+
+// Warm cache + load calendar on startup
+(async () => {
+  try {
+    console.log('Fetching VOTD from API...');
+    cache = await fetchVOTD();
+    cacheDate = new Date();
+    console.log(`Cached: ${cache.reference} — ${cache.date}`);
+  } catch (e) {
+    console.error('Startup fetch failed:', e.message);
+  }
+
+  try {
+    const calRes = await fetch(MOMENTS_API, { headers: YV_HEADERS });
+    const calJson = await calRes.json();
+    votdCalendar = calJson.response?.data ?? [];
+    console.log(`VOTD calendar loaded: ${votdCalendar.length} days`);
+  } catch (e) {
+    console.error('Calendar fetch failed:', e.message);
+  }
+})();
+
+// Serve font files
+app.use('/fonts', express.static('fonts'));
+app.use('/public', express.static('public'));
+
+app.get('/api/search', (req, res) => {
+  const q = req.query.q || '';
+  if (!q.trim()) return res.json({ results: [] });
+  const results = searchCalendar(q);
+  res.json({ results });
+});
+
+app.get('/', async (req, res) => {
+  try {
+    const requestedDate = req.query.date; // e.g. ?date=2026-01-15
+    let data;
+
+    if (requestedDate) {
+      data = await fetchVOTD(requestedDate);
+    } else {
+      if (isCacheStale()) {
+        console.log('Refreshing VOTD cache...');
+        cache = await fetchVOTD();
+        cacheDate = new Date();
+      }
+      data = cache;
+    }
+
+    const { date, verseText, reference, imageUrl, shareImageUrl, sourceUrl, theme } = data;
+
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verse of the Day — YouVersion</title>
+
+  <!-- bible.com fonts & styles -->
+  <link rel="stylesheet" href="https://use.typekit.net/wfn2tts.css" />
+  <link rel="stylesheet" href="https://www.bible.com/_next/static/chunks/5754d9b1c1415c11.css" />
+  <link rel="stylesheet" href="https://www.bible.com/_next/static/chunks/bbf1b40dcd92e542.css" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
+
+  <style>
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-Light.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-Light.woff') format('woff');
+      font-weight: 300; font-style: normal;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-LightItalic.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-LightItalic.woff') format('woff');
+      font-weight: 300; font-style: italic;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-Regular.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-Regular.woff') format('woff');
+      font-weight: 400; font-style: normal;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-Italic.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-Italic.woff') format('woff');
+      font-weight: 400; font-style: italic;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-Medium.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-Medium.woff') format('woff');
+      font-weight: 500; font-style: normal;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-MediumItalic.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-MediumItalic.woff') format('woff');
+      font-weight: 500; font-style: italic;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-Bold.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-Bold.woff') format('woff');
+      font-weight: 700; font-style: normal;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-BoldItalic.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-BoldItalic.woff') format('woff');
+      font-weight: 700; font-style: italic;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-ExtraBold.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-ExtraBold.woff') format('woff');
+      font-weight: 800; font-style: normal;
+    }
+    @font-face {
+      font-family: 'EditorCondensed';
+      src: url('/fonts/font/EditorCondensed-ExtraBoldItalic.woff2') format('woff2'),
+           url('/fonts/font/EditorCondensed-ExtraBoldItalic.woff') format('woff');
+      font-weight: 800; font-style: italic;
+    }
+
+    :root {
+      --panel-bg: ${theme.panelBg};
+      --text-color: ${theme.textColor};
+      --accent: ${theme.accentColor};
+      --bar-dark: ${theme.barDark};
+      --bar-accent: ${theme.barAccent};
+      --deeper-bg: ${theme.deeperBg};
+      --card-bg: ${theme.cardBg};
+      --link-color: ${theme.linkColor};
+      --date-bg: ${theme.eyebrowDateBg};
+      --highlight: ${theme.highlightColor};
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    /* Override any max-width containers the bible.com stylesheet might apply globally */
+    html, body {
+      width: 100% !important;
+      max-width: 100% !important;
+      overflow-x: hidden !important;
+    }
+
+    body {
+      background: var(--panel-bg);
+      display: flex;
+      flex-direction: column;
+      min-height: 100dvh;
+      padding-top: 76px;
+    }
+
+    /* ── Hero: fills remaining viewport after header ── */
+    .page-hero {
+      display: flex;
+      width: 100%;
+      height: calc(100dvh - 76px);
+      animation: fadeIn 0.7s ease both;
+      flex-shrink: 0;
+      overflow: hidden;
+    }
+
+    /* Full-width container for both header and footer */
+    .max-w-container-xl {
+      max-width: 100% !important;
+      padding-left: 2rem !important;
+      padding-right: 2rem !important;
+    }
+
+    /* 3-column grid: logo | center (nav+search) | right items */
+    header > .max-w-container-xl {
+      display: grid !important;
+      grid-template-columns: 1fr auto 1fr !important;
+      align-items: center !important;
+    }
+
+    .nav-center {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      justify-self: center;
+    }
+
+    .nav-center .flex-1 {
+      flex: 0 1 auto !important;
+      width: 380px;
+      max-width: 380px;
+    }
+
+    .nav-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      justify-self: end;
+    }
+
+    /* Ensure footer is full-width and visible */
+    footer {
+      width: 100% !important;
+      max-width: 100% !important;
+      display: block !important;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to   { opacity: 1; }
+    }
+
+    /* ── Left panel: column layout filling half the hero ── */
+    .panel-left {
+      flex: 1;
+      background: var(--panel-bg);
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    /* Scrollable content area above the bar */
+    .panel-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 2.5rem 3.5rem;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .votd-group {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .votd-eyebrow {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 500;
+      font-size: 2rem;
+      letter-spacing: -0.01em;
+      color: var(--text-color);
+      margin-bottom: 0.75rem;
+    }
+
+    .votd-eyebrow-date {
+      display: inline-flex;
+      align-items: center;
+      background: var(--date-bg);
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 500;
+      font-size: 1.5rem;
+      color: var(--text-color);
+      padding: 0.55rem 0.4rem 0.35rem;
+      line-height: 1cap;
+      border-radius: 2px;
+      letter-spacing: -0.04em;
+    }
+
+    .votd-share {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text-color);
+      text-decoration: none;
+      opacity: 0.5;
+    }
+
+    .votd-verse {
+      font-family: 'EditorCondensed', Georgia, serif;
+      font-weight: 400;
+      font-size: clamp(2.5rem, 5.2vw, 5.6rem);
+      line-height: 1.03;
+      letter-spacing: -0.028em;
+      color: var(--text-color);
+    }
+
+    .votd-reference {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 1.125rem;
+      font-weight: 900;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: var(--text-color);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding-top: 1.25rem;
+    }
+
+    .votd-reference a { color: inherit; text-decoration: none; }
+
+    /* ── Action bar — inside left panel only, 142px tall ── */
+    .panel-bar {
+      display: flex;
+      flex-direction: row;
+      height: 142px;
+      flex-shrink: 0;
+      width: 100%;
+    }
+
+    .bar-left {
+      flex: 0 0 50%;
+      width: 50%;
+      background: var(--bar-dark);
+      display: flex;
+      align-items: center;
+      padding: 0;
+      gap: 0;
+      text-decoration: none;
+      overflow: hidden;
+      transition: background 0.15s;
+    }
+    .bar-left:hover { filter: brightness(1.3); }
+
+    .bar-thumb {
+      width: 72px;
+      height: 114px;
+      object-fit: cover;
+      object-position: center top;
+      flex-shrink: 0;
+      border-radius: 5px;
+      margin: 14px 0 14px 1.5rem;
+    }
+
+    .bar-left-text {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 0.625rem;
+      padding: 0 1.5rem;
+    }
+
+    .bar-label {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 1.125rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: #fff;
+    }
+
+    .bar-arrow {
+      color: #fff;
+      font-size: 1.1rem;
+      display: inline-block;
+      line-height: 1;
+    }
+
+    .bar-right {
+      flex: 0 0 50%;
+      width: 50%;
+      background: var(--bar-accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0 1.5rem;
+      gap: 0.75rem;
+      text-decoration: none;
+      transition: background 0.15s;
+    }
+    .bar-right:hover { filter: brightness(0.85); }
+    .bar-right .bar-label { color: #fff; }
+
+    .bible-icon {
+      width: 24px;
+      height: 24px;
+      flex-shrink: 0;
+    }
+
+    /* ── Right panel: full height photo ── */
+    .panel-right {
+      flex: 1;
+      position: relative;
+      background: var(--bar-dark);
+      overflow: hidden;
+      min-width: 0;
+    }
+
+    .panel-right-img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+    }
+
+    .panel-right-overlay {
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(160deg, rgba(60,60,60,0.2) 0%, rgba(20,20,20,0.45) 100%);
+    }
+
+    /* ── Share verse card — floats top-right of image panel ── */
+    .share-card {
+      position: absolute;
+      top: 46px;
+      right: 56px;
+      width: 91px;
+      background: #fff;
+      border-radius: 5px;
+      padding: 9px;
+      padding-bottom: 12px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      z-index: 2;
+      cursor: pointer;
+      transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                  box-shadow 0.3s ease;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+    }
+
+    .share-card:hover {
+      transform: scale(1.08);
+      box-shadow: 0 12px 40px rgba(0,0,0,0.25);
+    }
+
+    .share-card-img {
+      width: 73px;
+      height: 130px;
+      object-fit: cover;
+      border-radius: 4px;
+      box-shadow: 0 4px 52px 20px rgba(0,0,0,0.25);
+      transition: box-shadow 0.3s ease;
+    }
+
+    .share-card:hover .share-card-img {
+      box-shadow: 0 6px 64px 24px rgba(0,0,0,0.35);
+    }
+
+    .share-card-action {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      margin-top: 10px;
+      text-decoration: none;
+      color: #000;
+    }
+
+    .share-card-action svg {
+      width: 14px;
+      height: 14px;
+    }
+
+    .share-card-action span {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    /* ── Go Deeper section (below fold) ── */
+    .page-deeper {
+      background: var(--deeper-bg);
+      padding: 4rem 3.5rem 5rem;
+    }
+
+    .deeper-heading {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 800;
+      font-size: clamp(2rem, 4vw, 3rem);
+      letter-spacing: -0.02em;
+      color: var(--text-color);
+      margin-bottom: 2rem;
+    }
+
+    .deeper-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 1.5rem;
+    }
+
+    .deeper-card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .deeper-card-label {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: #777a7b;
+    }
+
+    .deeper-card-title {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 700;
+      font-size: 1.35rem;
+      color: var(--text-color);
+      line-height: 1.15;
+    }
+
+    .deeper-card-body {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.875rem;
+      color: #555;
+      line-height: 1.55;
+    }
+
+    .deeper-card-link {
+      display: inline-block;
+      margin-top: 0.75rem;
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.75rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--link-color);
+      text-decoration: none;
+    }
+    .deeper-card-link:hover { text-decoration: underline; }
+
+    /* ── Responsive ── */
+    /* ── Tablet / narrow two-column ── */
+    @media (max-width: 1024px) and (min-width: 769px) {
+      .panel-content {
+        padding: 1.75rem 2rem;
+      }
+
+      .votd-eyebrow {
+        font-size: 1.35rem;
+        margin-bottom: 0.5rem;
+        flex-wrap: nowrap;
+        gap: 0.3rem;
+      }
+
+      .votd-eyebrow-date {
+        font-size: 1.1rem;
+      }
+
+      .votd-share {
+        font-size: 0.65rem;
+      }
+
+      .votd-verse {
+        font-size: clamp(1.75rem, 3.8vw, 3.2rem);
+      }
+
+      .votd-reference {
+        font-size: 0.875rem;
+        padding-top: 0.875rem;
+      }
+
+      .panel-bar {
+        height: 100px;
+      }
+
+      .bar-thumb {
+        width: 56px;
+        margin-left: 1.25rem;
+      }
+
+      .bar-left-text {
+        padding: 0 1rem;
+        gap: 0.4rem;
+      }
+
+      .bar-label {
+        font-size: 0.8rem;
+        letter-spacing: 0.025em;
+      }
+
+      .bar-right {
+        padding: 0 1.25rem;
+        gap: 0.5rem;
+      }
+
+      .bible-icon {
+        width: 18px;
+        height: 18px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      body {
+        padding-top: 60px;
+      }
+
+      /* Mobile header: reset to flex, tighter padding */
+      header > .max-w-container-xl {
+        display: flex !important;
+        grid-template-columns: unset !important;
+        justify-content: space-between !important;
+        gap: 0.5rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+      }
+
+      .max-w-container-xl {
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
+      }
+
+      /* Hide: desktop nav links (lg:flex) */
+      header [class~="lg:flex"] {
+        display: none !important;
+      }
+
+      /* Hide: desktop search bar (the flex-1 hidden one) */
+      header [class~="flex-1"][class~="hidden"] {
+        display: none !important;
+      }
+
+      /* Hide: "Get the app" link */
+      header a[href="/app"] {
+        display: none !important;
+      }
+
+      /* Hide: language selector + other hidden md:block wrappers */
+      header [class~="md:block"][class~="hidden"] {
+        display: none !important;
+      }
+
+      /* Show: mobile-only icons (md:hidden items like search icon) */
+      header [class~="md:hidden"] {
+        display: inline-flex !important;
+        align-items: center;
+      }
+
+      /* Stack panels vertically: image on top, text below */
+      .page-hero {
+        flex-direction: column;
+        height: auto;
+        min-height: calc(100dvh - 60px);
+      }
+
+      .panel-right {
+        order: -1;
+        flex: 0 0 85vw;
+        height: 85vw;
+        min-width: 100%;
+      }
+
+      .share-card {
+        top: 20px;
+        right: 20px;
+        width: 75px;
+        padding: 7px 7px 10px;
+      }
+
+      .share-card-img {
+        width: 61px;
+        height: 108px;
+      }
+
+      .panel-left {
+        flex: 1;
+        min-height: 0;
+      }
+
+      .panel-content {
+        padding: 1.75rem 1.5rem 1rem;
+        justify-content: center;
+        overflow: visible;
+      }
+
+      .votd-eyebrow {
+        font-size: 1.2rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .votd-eyebrow-date {
+        font-size: 1rem;
+      }
+
+      .votd-verse {
+        font-size: clamp(2rem, 8.5vw, 3rem);
+      }
+
+      .votd-reference {
+        font-size: 0.8rem;
+        padding-top: 0.875rem;
+      }
+
+      .panel-bar {
+        height: 88px;
+      }
+
+      .bar-thumb {
+        width: 52px;
+        margin-left: 1rem;
+      }
+
+      .bar-left-text {
+        padding: 0 1rem;
+        gap: 0.4rem;
+      }
+
+      .bar-label {
+        font-size: 0.8rem;
+        letter-spacing: 0.02em;
+      }
+
+      .bar-right {
+        padding: 0 1rem;
+        gap: 0.5rem;
+      }
+
+      .bible-icon {
+        width: 18px;
+        height: 18px;
+      }
+
+      .page-deeper {
+        padding: 2.5rem 1.25rem 3.5rem;
+      }
+
+      .deeper-heading {
+        font-size: 1.75rem;
+        margin-bottom: 1.25rem;
+      }
+
+      .deeper-grid {
+        grid-template-columns: 1fr;
+        gap: 1rem;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .panel-right {
+        flex: 0 0 72vw;
+        height: 72vw;
+      }
+
+      .panel-content {
+        padding: 1.25rem 1.25rem 0.75rem;
+      }
+
+      .votd-eyebrow {
+        font-size: 1rem;
+      }
+
+      .votd-eyebrow-date {
+        font-size: 0.875rem;
+      }
+
+      .votd-verse {
+        font-size: clamp(1.75rem, 9vw, 2.5rem);
+      }
+    }
+
+    /* ── Date picker dropdown ── */
+    .date-picker-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 9998;
+    }
+
+    .date-picker-dropdown {
+      display: none;
+      position: fixed;
+      top: 60px;
+      right: 2rem;
+      z-index: 9999;
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+      padding: 1.25rem;
+      min-width: 260px;
+      font-family: 'aktiv-grotesk', sans-serif;
+    }
+
+    .date-picker-dropdown.open,
+    .date-picker-overlay.open {
+      display: block;
+    }
+
+    .date-picker-dropdown h3 {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #777a7b;
+      margin-bottom: 0.75rem;
+    }
+
+    .date-picker-dropdown input[type="date"] {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-family: 'aktiv-grotesk', sans-serif;
+      color: #121212;
+      outline: none;
+      transition: border-color 0.15s;
+      box-sizing: border-box;
+    }
+    .date-picker-dropdown input[type="date"]:focus {
+      border-color: var(--accent);
+    }
+
+    .date-picker-dropdown .date-go-btn {
+      display: block;
+      width: 100%;
+      margin-top: 0.75rem;
+      padding: 0.65rem;
+      background: var(--bar-dark);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: filter 0.15s;
+    }
+    .date-picker-dropdown .date-go-btn:hover {
+      filter: brightness(1.5);
+    }
+
+    .date-picker-dropdown .date-today-link {
+      display: block;
+      text-align: center;
+      margin-top: 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--link-color);
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .date-picker-dropdown .date-today-link:hover {
+      text-decoration: underline;
+    }
+
+    /* ── Verse search ── */
+    .verse-search-divider {
+      height: 1px;
+      background: #e5e5e5;
+      margin: 1rem 0;
+    }
+
+    .verse-search-label {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #777a7b;
+      margin-bottom: 0.5rem;
+    }
+
+    .verse-search-input {
+      width: 100%;
+      padding: 0.6rem 0.75rem;
+      border: 1.5px solid #ddd;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      font-family: 'aktiv-grotesk', sans-serif;
+      color: #121212;
+      outline: none;
+      transition: border-color 0.15s;
+      box-sizing: border-box;
+    }
+    .verse-search-input:focus {
+      border-color: var(--accent);
+    }
+    .verse-search-input::placeholder {
+      color: #aaa;
+    }
+
+    .verse-search-results {
+      max-height: 220px;
+      overflow-y: auto;
+      margin-top: 0.5rem;
+    }
+    .verse-search-results:empty {
+      display: none;
+    }
+
+    .verse-search-result {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0.5rem 0.5rem;
+      border-radius: 6px;
+      cursor: pointer;
+      text-decoration: none;
+      transition: background 0.1s;
+    }
+    .verse-search-result:hover {
+      background: #f3f0ec;
+    }
+
+    .verse-search-ref {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 500;
+      font-size: 1rem;
+      color: #121212;
+      line-height: 1.2;
+    }
+
+    .verse-search-date {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-size: 0.7rem;
+      font-weight: 600;
+      color: #999;
+      letter-spacing: 0.02em;
+      white-space: nowrap;
+      margin-left: 0.75rem;
+    }
+
+    .verse-search-empty {
+      font-size: 0.8rem;
+      color: #999;
+      padding: 0.5rem 0;
+    }
+  </style>
+</head>
+<body>
+
+  ${layout.headerHTML}
+
+  <!-- Date picker dropdown -->
+  <div class="date-picker-overlay" id="dateOverlay"></div>
+  <div class="date-picker-dropdown" id="datePicker">
+    <h3>Find a Verse</h3>
+    <input class="verse-search-input" type="text" id="verseSearchInput"
+           placeholder="e.g. Romans, Psalm 23, John 3:16" autocomplete="off" />
+    <div class="verse-search-results" id="verseSearchResults"></div>
+
+    <div class="verse-search-divider"></div>
+
+    <h3>Change Verse Date</h3>
+    <input type="date" id="dateInput" value="${requestedDate || new Date().toISOString().slice(0, 10)}" />
+    <button class="date-go-btn" id="dateGoBtn">Go to Date</button>
+    <a class="date-today-link" href="/">Back to Today</a>
+  </div>
+
+  <script>
+    (function() {
+      var hamburger = document.querySelector('button[aria-label="profile menu"]');
+      var picker = document.getElementById('datePicker');
+      var overlay = document.getElementById('dateOverlay');
+      var input = document.getElementById('dateInput');
+      var goBtn = document.getElementById('dateGoBtn');
+
+      if (hamburger) {
+        hamburger.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          picker.classList.toggle('open');
+          overlay.classList.toggle('open');
+        });
+      }
+
+      overlay.addEventListener('click', function() {
+        picker.classList.remove('open');
+        overlay.classList.remove('open');
+      });
+
+      goBtn.addEventListener('click', function() {
+        var d = input.value;
+        if (d) window.location.href = '/?date=' + d;
+      });
+
+      input.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+          var d = input.value;
+          if (d) window.location.href = '/?date=' + d;
+        }
+      });
+
+      // Verse search
+      var searchInput = document.getElementById('verseSearchInput');
+      var searchResults = document.getElementById('verseSearchResults');
+      var searchTimer = null;
+
+      searchInput.addEventListener('input', function() {
+        clearTimeout(searchTimer);
+        var q = searchInput.value.trim();
+        if (!q) { searchResults.innerHTML = ''; return; }
+        searchTimer = setTimeout(function() {
+          fetch('/api/search?q=' + encodeURIComponent(q))
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+              if (!data.results || data.results.length === 0) {
+                searchResults.innerHTML = '<div class="verse-search-empty">No verses found in the VOTD calendar</div>';
+                return;
+              }
+              searchResults.innerHTML = data.results.map(function(r) {
+                return '<a class="verse-search-result" href="/?date=' + r.date + '">'
+                  + '<span class="verse-search-ref">' + r.references.join(', ') + '</span>'
+                  + '<span class="verse-search-date">' + r.dateFormatted + '</span>'
+                  + '</a>';
+              }).join('');
+            })
+            .catch(function() {
+              searchResults.innerHTML = '';
+            });
+        }, 200);
+      });
+    })();
+  </script>
+
+  <div class="page-hero">
+
+    <!-- ── Left panel ── -->
+    <div class="panel-left">
+
+      <div class="panel-content">
+        <div class="votd-group">
+          <div class="votd-eyebrow">
+            Verse of the Day &nbsp;•&nbsp;
+            <span class="votd-eyebrow-date">${new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
+            <a class="votd-share" href="${sourceUrl}" target="_blank" rel="noopener">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M11 3.172 9.414 4.757 8 3.343 12 .343l4 3-1.414 1.414L13 3.172V15h-2V3.172ZM4 9h4v2H5v11h14V11h-3V9h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" fill="currentColor"/>
+              </svg>
+              Share
+            </a>
+          </div>
+
+          <p class="votd-verse">${verseText}</p>
+
+          <p class="votd-reference">
+            <a href="${sourceUrl}" target="_blank" rel="noopener">${reference} (NIV)</a>
+            &nbsp;→
+          </p>
+        </div>
+      </div>
+
+      <!-- Action bar: dark left + orange right, inside left panel only -->
+      <div class="panel-bar">
+        <a class="bar-left" href="#go-deeper">
+          <img class="bar-thumb" src="/public/icons/book-cover.jpg" alt="Go Deeper" />
+          <div class="bar-left-text">
+            <span class="bar-label">Go Deeper</span>
+            <span class="bar-arrow">↓</span>
+          </div>
+        </a>
+        <a class="bar-right" href="https://www.bible.com/bible" target="_blank" rel="noopener">
+          <svg class="bible-icon" width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M2 4.5C2 3.12 3.12 2 4.5 2H9.5C10.33 2 11.08 2.33 11.62 2.87L12 3.25L12.38 2.87C12.92 2.33 13.67 2 14.5 2H19.5C20.88 2 22 3.12 22 4.5V17.5C22 18.88 20.88 20 19.5 20H14.5C13.67 20 12.92 20.33 12.38 20.87L12 21.25L11.62 20.87C11.08 20.33 10.33 20 9.5 20H4.5C3.12 20 2 18.88 2 17.5V4.5ZM11 5.5C11 4.67 10.33 4 9.5 4H4.5C4.22 4 4 4.22 4 4.5V17.5C4 17.78 4.22 18 4.5 18H9.5C10.33 18 11.08 18.33 11.62 18.87L11 18.87V5.5ZM13 18.87L12.38 18.87C12.92 18.33 13.67 18 14.5 18H19.5C19.78 18 20 17.78 20 17.5V4.5C20 4.22 19.78 4 19.5 4H14.5C13.67 4 13 4.67 13 5.5V18.87Z" fill="white"/>
+          </svg>
+          <span class="bar-label">Read the Bible Now</span>
+        </a>
+      </div>
+
+    </div>
+
+    <!-- ── Right panel: full height photo ── -->
+    <div class="panel-right">
+      ${imageUrl ? `<img class="panel-right-img" src="${imageUrl}" alt="Verse of the Day image" />` : ''}
+      <div class="panel-right-overlay"></div>
+
+      ${(shareImageUrl || imageUrl) ? `
+      <div class="share-card">
+        <img class="share-card-img" src="${shareImageUrl || imageUrl}" alt="Share verse" />
+        <a class="share-card-action" href="${sourceUrl}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path fill-rule="evenodd" clip-rule="evenodd" d="M11 3.172 9.414 4.757 8 3.343 12 .343l4 3-1.414 1.414L13 3.172V15h-2V3.172ZM4 9h4v2H5v11h14V11h-3V9h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" fill="currentColor"/>
+          </svg>
+          <span>Share</span>
+        </a>
+      </div>` : ''}
+    </div>
+
+  </div>
+
+  <!-- Go Deeper section -->
+  <section id="go-deeper" class="page-deeper">
+    <h2 class="deeper-heading">Go Deeper</h2>
+    <div class="deeper-grid">
+      <div class="deeper-card">
+        <span class="deeper-card-label">Reading Plan</span>
+        <span class="deeper-card-title">Faith &amp; Peace</span>
+        <p class="deeper-card-body">Explore what it means to be justified through faith and find peace with God through a 5-day plan.</p>
+        <a class="deeper-card-link" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start Plan →</a>
+      </div>
+      <div class="deeper-card">
+        <span class="deeper-card-label">Context</span>
+        <span class="deeper-card-title">Romans 5 in Full</span>
+        <p class="deeper-card-body">Read the complete chapter to understand the full arc of Paul's argument about grace and reconciliation.</p>
+        <a class="deeper-card-link" href="https://www.bible.com/bible/111/ROM.5" target="_blank" rel="noopener">Read Chapter →</a>
+      </div>
+      <div class="deeper-card">
+        <span class="deeper-card-label">Verse</span>
+        <span class="deeper-card-title">${reference}</span>
+        <p class="deeper-card-body">${verseText}</p>
+        <a class="deeper-card-link" href="${sourceUrl}" target="_blank" rel="noopener">View on YouVersion →</a>
+      </div>
+    </div>
+  </section>
+
+  ${layout.footerHTML}
+
+</body>
+</html>`);
+  } catch (err) {
+    console.error(err);
+    res.status(500).send('<pre>Error: ' + err.message + '</pre>');
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Server running at http://localhost:${PORT}`);
+});
