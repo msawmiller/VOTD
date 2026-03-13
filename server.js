@@ -11,6 +11,7 @@ const VERSES_API = 'https://bible.youversionapi.com/3.3/verses.json';
 const VOTD_PAGE = 'https://www.bible.com/verse-of-the-day';
 const MOMENTS_API = 'https://moments.youversionapi.com/3.1/votd.json?language_tag=en';
 const IMAGE_PROXY_BASE = 'https://imageproxy.youversionapi.com/1280x1280/https://s3.amazonaws.com/static-youversionapi-com/images/base';
+const BG_IMAGES_API = 'https://images.youversionapi.com/3.2/items.json';
 
 const YV_HEADERS = {
   'X-YouVersion-Client': 'youversion',
@@ -316,65 +317,64 @@ async function fetchVOTD(targetDate) {
   const reference = verseData.reference.human;
   const verseText = stripHtml(verseData.content);
 
-  // Fetch the official VOTD image via the moments API (image_id → imageproxy URL)
-  let imageUrl = null;
+  // Step 1: Get the official prerendered image_id from moments API (anchors both images)
+  const usfmRefs = entry.references;
+  let momentsImageId = null;
   try {
     const momentsRes = await fetch(MOMENTS_API, { headers: YV_HEADERS });
     const momentsJson = await momentsRes.json();
     const momentsList = momentsJson.response?.data ?? [];
     const todayMoment = momentsList.find((d) => d.day === day);
-    if (todayMoment?.image_id) {
-      imageUrl = `${IMAGE_PROXY_BASE}/${todayMoment.image_id}/1280x1280.jpg`;
-      console.log(`VOTD image: id=${todayMoment.image_id} → ${imageUrl}`);
-    }
+    momentsImageId = todayMoment?.image_id ?? null;
   } catch (e) {
-    console.warn('Could not fetch VOTD image from moments API:', e.message);
+    console.warn('Could not fetch moments API:', e.message);
   }
 
-  // Fallback: scrape the OG image from bible.com VOTD page
-  if (!imageUrl) {
-    try {
-      const pageRes = await fetch(VOTD_PAGE, {
-        headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)' },
-      });
-      const html = await pageRes.text();
-      const match = html.match(/og:image" content="([^"]+)"/);
-      imageUrl = match?.[1] ?? null;
-      if (imageUrl) console.log('VOTD image (OG fallback):', imageUrl);
-    } catch {
-      console.warn('OG image fallback also failed.');
-    }
-  }
-
-  // Find a pre-made vertical (1080x1920) verse image for the share card
+  // Step 2: Share card — use the moments prerendered image (with text/artwork)
   let shareImageUrl = null;
+  if (momentsImageId) {
+    shareImageUrl = `${IMAGE_PROXY_BASE}/${momentsImageId}/1280x1280.jpg`.replace('1280x1280/https', '320x568/https');
+    console.log(`Share image (moments): id=${momentsImageId}`);
+  }
+
+  // Step 3: Background — find the prerendered_bg that matches the moments image (closest ID = same photo batch)
+  let imageUrl = null;
   try {
-    const imgSearchRes = await fetch(
-      `https://search.youversionapi.com/4.0/images?query=${encodeURIComponent(usfm)}&bible_version_id=${BIBLE_VERSION_ID}`,
-      { headers: { 'Accept-Language': 'en' } }
-    );
-    const imgSearchJson = await imgSearchRes.json();
-    const candidates = imgSearchJson.data || [];
+    const bgParams = new URLSearchParams({ category: 'prerendered_bg' });
+    usfmRefs.forEach((ref) => bgParams.append('usfm[]', ref));
+    let allBgImages = [];
+    for (let page = 1; page <= 4; page++) {
+      bgParams.set('page', page);
+      const bgRes = await fetch(`${BG_IMAGES_API}?${bgParams}`, { headers: YV_HEADERS });
+      const bgJson = await bgRes.json();
+      const imgs = bgJson.response?.data?.images ?? [];
+      if (imgs.length === 0) break;
+      allBgImages.push(...imgs);
+    }
 
-    // Prefer exact USFM matches, then fall back to any result
-    const sorted = [
-      ...candidates.filter((img) => img.usfms.some((u) => usfm.includes(u))),
-      ...candidates.filter((img) => !img.usfms.some((u) => usfm.includes(u))),
-    ];
-
-    for (const img of sorted) {
-      const verticalUrl = `https://imageproxy.youversionapi.com/640x640/https://s3.amazonaws.com/static-youversionapi-com/images/base/${img.id}/1080x1920.jpg`;
-      try {
-        const head = await fetch(verticalUrl, { method: 'HEAD' });
-        if (head.ok) {
-          shareImageUrl = verticalUrl.replace('640x640', '320x568');
-          console.log(`Share image: id=${img.id} (vertical 1080x1920)`);
-          break;
-        }
-      } catch { /* try next */ }
+    if (allBgImages.length > 0 && momentsImageId) {
+      // Pick the bg image closest in ID to the moments prerendered image (same design batch)
+      allBgImages.sort((a, b) => Math.abs(a.id - momentsImageId) - Math.abs(b.id - momentsImageId));
+      const chosen = allBgImages[0];
+      const rawUrl = chosen.urls.regular.replace('{w}', '1280').replace('{h}', '1280');
+      imageUrl = rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
+      console.log(`VOTD bg image: id=${chosen.id} (Δ${Math.abs(chosen.id - momentsImageId)} from moments ${momentsImageId})`);
+    } else if (allBgImages.length > 0) {
+      // No moments anchor — pick newest square
+      const square = allBgImages.find((img) => img.width === img.height);
+      const chosen = square || allBgImages[0];
+      const rawUrl = chosen.urls.regular.replace('{w}', '1280').replace('{h}', '1280');
+      imageUrl = rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
+      console.log(`VOTD bg image (no anchor): id=${chosen.id}`);
     }
   } catch (e) {
-    console.warn('Could not find vertical share image:', e.message);
+    console.warn('Could not fetch prerendered_bg image:', e.message);
+  }
+
+  // Fallback: use the moments prerendered image directly as bg
+  if (!imageUrl && momentsImageId) {
+    imageUrl = `${IMAGE_PROXY_BASE}/${momentsImageId}/1280x1280.jpg`;
+    console.log(`VOTD image (moments fallback): id=${momentsImageId}`);
   }
 
   const theme = await extractPalette(imageUrl);
@@ -649,7 +649,7 @@ app.get('/', async (req, res) => {
       font-size: 2rem;
       letter-spacing: -0.01em;
       color: var(--text-color);
-      margin-bottom: 0.75rem;
+      margin-bottom: 1.25rem;
     }
 
     .votd-eyebrow-date {
@@ -682,8 +682,8 @@ app.get('/', async (req, res) => {
     .votd-verse {
       font-family: 'EditorCondensed', Georgia, serif;
       font-weight: 400;
-      font-size: clamp(2.5rem, 5.2vw, 5.6rem);
-      line-height: 1.03;
+      font-size: clamp(2.5rem, calc(5.2vw * var(--verse-scale, 1)), calc(5.6rem * var(--verse-scale, 1)));
+      line-height: 0.95;
       letter-spacing: -0.028em;
       color: var(--text-color);
     }
@@ -718,11 +718,13 @@ app.get('/', async (req, res) => {
       background: var(--bar-dark);
       display: flex;
       align-items: center;
-      padding: 0;
-      gap: 0;
+      justify-content: center;
+      padding: 0 1rem;
+      gap: 1rem;
       text-decoration: none;
       overflow: hidden;
       transition: background 0.15s;
+      box-sizing: border-box;
     }
     .bar-left:hover { filter: brightness(1.3); }
 
@@ -733,15 +735,13 @@ app.get('/', async (req, res) => {
       object-position: center top;
       flex-shrink: 0;
       border-radius: 5px;
-      margin: 14px 0 14px 1.5rem;
+      margin: 14px 0;
     }
 
     .bar-left-text {
-      flex: 1;
       display: flex;
       align-items: center;
       gap: 0.625rem;
-      padding: 0 1.5rem;
     }
 
     .bar-label {
@@ -790,6 +790,12 @@ app.get('/', async (req, res) => {
       min-width: 0;
     }
 
+    @keyframes breathe {
+      0%   { opacity: 0.35; transform: scale(1.04); }
+      50%  { opacity: 1;    transform: scale(1); }
+      100% { opacity: 0.35; transform: scale(1.04); }
+    }
+
     .panel-right-img {
       position: absolute;
       inset: 0;
@@ -797,6 +803,7 @@ app.get('/', async (req, res) => {
       height: 100%;
       object-fit: cover;
       object-position: center top;
+      animation: breathe 12s cubic-bezier(0.45, 0, 0.55, 1) infinite;
     }
 
     .panel-right-overlay {
@@ -939,7 +946,7 @@ app.get('/', async (req, res) => {
 
       .votd-eyebrow {
         font-size: 1.35rem;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.875rem;
         flex-wrap: nowrap;
         gap: 0.3rem;
       }
@@ -953,7 +960,7 @@ app.get('/', async (req, res) => {
       }
 
       .votd-verse {
-        font-size: clamp(1.75rem, 3.8vw, 3.2rem);
+        font-size: clamp(1.75rem, calc(3.8vw * var(--verse-scale, 1)), calc(3.2rem * var(--verse-scale, 1)));
       }
 
       .votd-reference {
@@ -967,11 +974,9 @@ app.get('/', async (req, res) => {
 
       .bar-thumb {
         width: 56px;
-        margin-left: 1.25rem;
       }
 
       .bar-left-text {
-        padding: 0 1rem;
         gap: 0.4rem;
       }
 
@@ -1076,7 +1081,7 @@ app.get('/', async (req, res) => {
 
       .votd-eyebrow {
         font-size: 1.2rem;
-        margin-bottom: 0.5rem;
+        margin-bottom: 0.875rem;
       }
 
       .votd-eyebrow-date {
@@ -1084,7 +1089,7 @@ app.get('/', async (req, res) => {
       }
 
       .votd-verse {
-        font-size: clamp(2rem, 8.5vw, 3rem);
+        font-size: clamp(2rem, calc(8.5vw * var(--verse-scale, 1)), calc(3rem * var(--verse-scale, 1)));
       }
 
       .votd-reference {
@@ -1098,11 +1103,9 @@ app.get('/', async (req, res) => {
 
       .bar-thumb {
         width: 52px;
-        margin-left: 1rem;
       }
 
       .bar-left-text {
-        padding: 0 1rem;
         gap: 0.4rem;
       }
 
@@ -1155,7 +1158,7 @@ app.get('/', async (req, res) => {
       }
 
       .votd-verse {
-        font-size: clamp(1.75rem, 9vw, 2.5rem);
+        font-size: clamp(1.75rem, calc(9vw * var(--verse-scale, 1)), calc(2.5rem * var(--verse-scale, 1)));
       }
     }
 
@@ -1433,7 +1436,16 @@ app.get('/', async (req, res) => {
             </a>
           </div>
 
-          <p class="votd-verse">${verseText}</p>
+          <p class="votd-verse" style="--verse-scale: ${
+            verseText.length < 60 ? 1.45
+            : verseText.length < 100 ? 1.25
+            : verseText.length < 150 ? 1.1
+            : verseText.length < 200 ? 0.88
+            : verseText.length < 260 ? 0.72
+            : verseText.length < 340 ? 0.58
+            : verseText.length < 450 ? 0.48
+            : 0.4
+          }; text-wrap: ${verseText.length < 180 ? 'balance' : 'pretty'}">${verseText}</p>
 
           <p class="votd-reference">
             <a href="${sourceUrl}" target="_blank" rel="noopener">${reference} (NIV)</a>
