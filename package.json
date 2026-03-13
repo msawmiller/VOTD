@@ -4,8 +4,9 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "start": "node scrape.js",
-    "serve": "node server.js"
+    "start": "node server.js",
+    "dev": "node server.js",
+    "scrape": "node scrape.js"
   },
   "keywords": [],
   "author": "",

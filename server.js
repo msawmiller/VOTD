@@ -1,6 +1,11 @@
 import express from 'express';
 import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
 import { Vibrant } from 'node-vibrant/node';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 const app = express();
 const PORT = 3000;
@@ -23,7 +28,7 @@ const YV_HEADERS = {
 // Load scraped header/footer
 let layout = { headerHTML: '', footerHTML: '' };
 try {
-  layout = JSON.parse(readFileSync('scraped-layout.json', 'utf8'));
+  layout = JSON.parse(readFileSync(join(__dirname, 'scraped-layout.json'), 'utf8'));
 
   // Wrap: logo+nav links in .nav-left, search alone in .nav-center, right items in .nav-right
   layout.headerHTML = layout.headerHTML
@@ -186,9 +191,8 @@ function dayOfYear(date) {
 }
 
 function stripHtml(html) {
-  // Extract text only from <span class="content"> nodes, preserving multi-part verses
   const matches = [...html.matchAll(/class="content"[^>]*>([^<]+)</g)];
-  return matches.map((m) => m[1]).join('').trim();
+  return matches.map((m) => m[1]).join(' ').replace(/\s+/g, ' ').trim();
 }
 
 function formatDate(date) {
@@ -385,6 +389,7 @@ async function fetchVOTD(targetDate) {
   return {
     day,
     date: formatDate(dateObj),
+    shortDate: dateObj.toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' }),
     usfm,
     reference,
     verseText,
@@ -423,8 +428,8 @@ function isCacheStale() {
 })();
 
 // Serve font files
-app.use('/fonts', express.static('fonts'));
-app.use('/public', express.static('public'));
+app.use('/fonts', express.static(join(__dirname, 'fonts')));
+app.use('/public', express.static(join(__dirname, 'public')));
 
 app.get('/api/search', (req, res) => {
   const q = req.query.q || '';
@@ -449,7 +454,7 @@ app.get('/', async (req, res) => {
       data = cache;
     }
 
-    const { date, verseText, reference, imageUrl, shareImageUrl, sourceUrl, theme } = data;
+    const { date, shortDate, verseText, reference, imageUrl, shareImageUrl, sourceUrl, theme } = data;
 
     res.send(`<!DOCTYPE html>
 <html lang="en">
@@ -578,17 +583,21 @@ app.get('/', async (req, res) => {
       padding-right: 2rem !important;
     }
 
+
     /* 3-column grid: logo+links | search (centered) | right items */
     header > .max-w-container-xl {
       display: grid !important;
       grid-template-columns: 1fr auto 1fr !important;
       align-items: center !important;
+      padding-left: 3rem !important;
+      padding-right: 3rem !important;
+      padding-inline: 3rem !important;
     }
 
     .nav-left {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 1.5rem;
       justify-self: start;
     }
 
@@ -637,7 +646,7 @@ app.get('/', async (req, res) => {
       display: flex;
       flex-direction: column;
       justify-content: center;
-      padding: 2.5rem 3.5rem;
+      padding: 2.5rem 3.5rem 2.5rem 5rem;
       min-height: 0;
       overflow: hidden;
     }
@@ -674,8 +683,8 @@ app.get('/', async (req, res) => {
     }
 
     .votd-share {
-      margin-left: auto;
-      display: flex;
+      margin-left: 1rem;
+      display: inline-flex;
       align-items: center;
       gap: 0.3rem;
       font-family: 'aktiv-grotesk', sans-serif;
@@ -1003,12 +1012,12 @@ app.get('/', async (req, res) => {
       }
     }
 
+    /* ── Mobile header (768px) — collapse nav but keep panels side-by-side ── */
     @media (max-width: 768px) {
       body {
         padding-top: 60px;
       }
 
-      /* Mobile header: reset to flex, tighter padding */
       header > .max-w-container-xl {
         display: flex !important;
         grid-template-columns: unset !important;
@@ -1023,67 +1032,22 @@ app.get('/', async (req, res) => {
         padding-right: 1rem !important;
       }
 
-      /* Hide: desktop nav links (lg:flex) */
-      header [class~="lg:flex"] {
-        display: none !important;
-      }
+      header [class~="lg:flex"] { display: none !important; }
+      header [class~="flex-1"][class~="hidden"] { display: none !important; }
+      header a[href="/app"] { display: none !important; }
+      header [class~="md:block"][class~="hidden"] { display: none !important; }
 
-      /* Hide: desktop search bar (the flex-1 hidden one) */
-      header [class~="flex-1"][class~="hidden"] {
-        display: none !important;
-      }
-
-      /* Hide: "Get the app" link */
-      header a[href="/app"] {
-        display: none !important;
-      }
-
-      /* Hide: language selector + other hidden md:block wrappers */
-      header [class~="md:block"][class~="hidden"] {
-        display: none !important;
-      }
-
-      /* Show: mobile-only icons (md:hidden items like search icon) */
       header [class~="md:hidden"] {
         display: inline-flex !important;
         align-items: center;
       }
 
-      /* Stack panels vertically: image on top, text below */
       .page-hero {
-        flex-direction: column;
-        height: auto;
-        min-height: calc(100dvh - 60px);
-      }
-
-      .panel-right {
-        order: -1;
-        flex: 0 0 85vw;
-        height: 85vw;
-        min-width: 100%;
-      }
-
-      .share-card {
-        top: 20px;
-        right: 20px;
-        width: 75px;
-        padding: 7px 7px 10px;
-      }
-
-      .share-card-img {
-        width: 61px;
-        height: 108px;
-      }
-
-      .panel-left {
-        flex: 1;
-        min-height: 0;
+        height: calc(100dvh - 60px);
       }
 
       .panel-content {
         padding: 1.75rem 1.5rem 1rem;
-        justify-content: center;
-        overflow: visible;
       }
 
       .votd-eyebrow {
@@ -1143,6 +1107,45 @@ app.get('/', async (req, res) => {
       .deeper-grid {
         grid-template-columns: 1fr;
         gap: 1rem;
+      }
+    }
+
+    /* ── Stack vertical (580px) — panels go top/bottom ── */
+    @media (max-width: 580px) {
+      .page-hero {
+        flex-direction: column;
+        height: auto;
+        min-height: calc(100dvh - 60px);
+      }
+
+      .panel-right {
+        order: -1;
+        flex: 0 0 85vw;
+        height: 85vw;
+        min-width: 100%;
+      }
+
+      .share-card {
+        top: 20px;
+        right: 20px;
+        width: 75px;
+        padding: 7px 7px 10px;
+      }
+
+      .share-card-img {
+        width: 61px;
+        height: 108px;
+      }
+
+      .panel-left {
+        flex: 1;
+        min-height: 0;
+      }
+
+      .panel-content {
+        padding: 1.75rem 1.5rem 1rem;
+        justify-content: center;
+        overflow: visible;
       }
     }
 
@@ -1434,13 +1437,7 @@ app.get('/', async (req, res) => {
         <div class="votd-group">
           <div class="votd-eyebrow">
             Verse of the Day &nbsp;•&nbsp;
-            <span class="votd-eyebrow-date">${new Date().toLocaleDateString('en-US', { month: 'numeric', day: 'numeric' })}</span>
-            <a class="votd-share" href="${sourceUrl}" target="_blank" rel="noopener">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path fill-rule="evenodd" clip-rule="evenodd" d="M11 3.172 9.414 4.757 8 3.343 12 .343l4 3-1.414 1.414L13 3.172V15h-2V3.172ZM4 9h4v2H5v11h14V11h-3V9h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" fill="currentColor"/>
-              </svg>
-              Share
-            </a>
+            <span class="votd-eyebrow-date">${shortDate}</span>
           </div>
 
           <p class="votd-verse" style="--verse-scale: ${
@@ -1457,6 +1454,12 @@ app.get('/', async (req, res) => {
           <p class="votd-reference">
             <a href="${sourceUrl}" target="_blank" rel="noopener">${reference} (NIV)</a>
             &nbsp;→
+            <a class="votd-share" href="${sourceUrl}" target="_blank" rel="noopener">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path fill-rule="evenodd" clip-rule="evenodd" d="M11 3.172 9.414 4.757 8 3.343 12 .343l4 3-1.414 1.414L13 3.172V15h-2V3.172ZM4 9h4v2H5v11h14V11h-3V9h4a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V10a1 1 0 0 1 1-1Z" fill="currentColor"/>
+              </svg>
+              Share
+            </a>
           </p>
         </div>
       </div>
@@ -1534,6 +1537,10 @@ app.get('/', async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`Server running at http://localhost:${PORT}`);
+  });
+}
+
+export default app;
