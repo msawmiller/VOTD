@@ -1647,6 +1647,7 @@ app.get('/', async (req, res) => {
         }
       }
     });
+
   </script>
 
   <div class="page-hero">
