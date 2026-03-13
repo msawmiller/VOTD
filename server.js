@@ -25,12 +25,15 @@ let layout = { headerHTML: '', footerHTML: '' };
 try {
   layout = JSON.parse(readFileSync('scraped-layout.json', 'utf8'));
 
-  // Wrap center items (nav links + search) and right items in grouping divs
-  // so CSS grid can truly center the middle section
+  // Wrap: logo+nav links in .nav-left, search alone in .nav-center, right items in .nav-right
   layout.headerHTML = layout.headerHTML
     .replace(
-      '<div class="hidden lg:flex">',
-      '<div class="nav-center"><div class="hidden lg:flex">'
+      '<a href="/">',
+      '<div class="nav-left"><a href="/">'
+    )
+    .replace(
+      '<div class="relative hidden flex-1',
+      '</div><div class="nav-center"><div class="relative hidden flex-1'
     )
     .replace(
       '<a class="hidden whitespace-nowrap',
@@ -575,17 +578,21 @@ app.get('/', async (req, res) => {
       padding-right: 2rem !important;
     }
 
-    /* 3-column grid: logo | center (nav+search) | right items */
+    /* 3-column grid: logo+links | search (centered) | right items */
     header > .max-w-container-xl {
       display: grid !important;
       grid-template-columns: 1fr auto 1fr !important;
       align-items: center !important;
     }
 
-    .nav-center {
+    .nav-left {
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      justify-self: start;
+    }
+
+    .nav-center {
       justify-self: center;
     }
 
