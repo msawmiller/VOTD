@@ -430,6 +430,7 @@ function isCacheStale() {
 // Serve font files
 app.use('/fonts', express.static(join(__dirname, 'fonts')));
 app.use('/public', express.static(join(__dirname, 'public')));
+app.use('/images', express.static(join(__dirname, 'images')));
 
 app.get('/api/search', (req, res) => {
   const q = req.query.q || '';
@@ -473,6 +474,32 @@ app.get('/', async (req, res) => {
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,700;1,500&display=swap" rel="stylesheet" />
 
   <style>
+    @font-face {
+      font-family: 'Editor';
+      src: url('/fonts/Editor-Light.otf') format('opentype');
+      font-weight: 300; font-style: normal;
+    }
+    @font-face {
+      font-family: 'Editor';
+      src: url('/fonts/Editor-Regular.otf') format('opentype');
+      font-weight: 400; font-style: normal;
+    }
+    @font-face {
+      font-family: 'Editor';
+      src: url('/fonts/Editor-Medium.otf') format('opentype');
+      font-weight: 500; font-style: normal;
+    }
+    @font-face {
+      font-family: 'Editor';
+      src: url('/fonts/Editor-Bold.otf') format('opentype');
+      font-weight: 700; font-style: normal;
+    }
+    @font-face {
+      font-family: 'Editor';
+      src: url('/fonts/Editor-Extrabold.otf') format('opentype');
+      font-weight: 800; font-style: normal;
+    }
+
     @font-face {
       font-family: 'EditorCondensed';
       src: url('/fonts/font/EditorCondensed-Light.woff2') format('woff2'),
@@ -886,72 +913,259 @@ app.get('/', async (req, res) => {
       font-weight: 500;
     }
 
-    /* ── Go Deeper section (below fold) ── */
+    /* ── Go Deeper section (below fold) — editorial layout ── */
     .page-deeper {
-      background: var(--deeper-bg);
-      padding: 4rem 3.5rem 5rem;
+      background: #fff;
+      padding: 0;
+      position: relative;
+      overflow: visible;
     }
 
-    .deeper-heading {
+    .deeper-date {
       font-family: 'EditorCondensed', sans-serif;
       font-weight: 800;
-      font-size: clamp(2rem, 4vw, 3rem);
-      letter-spacing: -0.02em;
-      color: var(--text-color);
+      font-size: 1.75rem;
+      color: #121212;
+      letter-spacing: -0.01em;
+      line-height: 1;
+      margin: 0;
+      padding: 3rem 5rem 0;
+    }
+
+    .deeper-divider {
+      border: none;
+      height: 2px;
+      background: #121212;
+      margin: 0.75rem 5rem;
+    }
+
+    .deeper-plan-title {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 400;
+      font-size: clamp(4rem, 12vw, 135px);
+      color: #121212;
+      letter-spacing: -0.03em;
+      line-height: 0.93;
+      padding: 6rem 5rem 0;
+      margin: 0;
+    }
+
+    .deeper-plan-ref {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-weight: 500;
+      font-size: 1.25rem;
+      color: #121212;
+      letter-spacing: 0.01em;
+      padding: 1.25rem 5rem 0;
+      margin: 0;
+    }
+
+    .deeper-subtitle {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-weight: 400;
+      font-size: 1.1rem;
+      color: #444;
+      letter-spacing: 0.01em;
+      padding: 1.5rem 5rem 2rem;
+      margin: 0;
+    }
+
+    .deeper-subtitle em {
+      font-style: italic;
+    }
+
+    .deeper-article-title {
+      display: none; /* merged into plan-title */
+      margin: 0 auto;
+      padding: 0 1.5rem 2rem;
+    }
+
+    .deeper-body {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 0 1.5rem;
+    }
+
+    .deeper-body p {
+      font-family: 'Editor', Georgia, serif;
+      font-weight: 400;
+      font-size: 1.25rem;
+      color: #121212;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      margin: 0 0 2.5rem;
+    }
+
+    .deeper-body {
+      padding-top: 1.5rem;
+      padding-bottom: 1.5rem;
+    }
+
+    .deeper-video {
+      width: 100%;
+      margin: 3rem 0 4rem;
+      overflow: hidden;
+    }
+
+    .deeper-video video {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 700px;
+    }
+
+    .deeper-image {
+      width: 100%;
+      margin: 4rem 0;
+      overflow: hidden;
+    }
+
+    .deeper-image img {
+      width: 100%;
+      height: auto;
+      display: block;
+      object-fit: cover;
+      max-height: 600px;
+    }
+
+    .deeper-pullquote {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 700;
+      font-size: clamp(1.75rem, 3.5vw, 2.75rem);
+      color: #121212;
+      text-align: center;
+      max-width: 680px;
+      margin: 0 auto;
+      line-height: 1;
+      letter-spacing: -0.03em;
+      padding: 4rem 1.5rem;
+    }
+
+    .deeper-body-light p {
+      font-family: 'Editor', Georgia, serif !important;
+      font-weight: 400 !important;
+      font-size: 1.25rem;
+      color: #121212;
+      line-height: 1.35;
+      letter-spacing: -0.01em;
+      margin: 0 0 2rem;
+    }
+
+    /* ── Recommended Plans ── */
+    .rec-plans {
+      padding: 3rem 5rem 5rem;
+    }
+
+    .rec-plans-heading {
+      font-family: 'EditorCondensed', sans-serif;
+      font-weight: 700;
+      font-size: clamp(2rem, 3.5vw, 3.15rem);
+      color: #121212;
+      letter-spacing: -0.03em;
+      line-height: 1;
       margin-bottom: 2rem;
     }
 
-    .deeper-grid {
+    .rec-plans-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 2rem;
     }
 
-    .deeper-card {
-      background: var(--card-bg);
-      border-radius: 8px;
-      padding: 1.5rem;
+    .rec-plan-card {
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
     }
 
-    .deeper-card-label {
+    .rec-plan-img {
+      width: 100%;
+      aspect-ratio: 321 / 232;
+      object-fit: cover;
+      border-radius: 12px;
+      margin-bottom: 1rem;
+    }
+
+    .rec-plan-title {
       font-family: 'aktiv-grotesk', sans-serif;
-      font-size: 0.65rem;
-      font-weight: 700;
-      letter-spacing: 0.15em;
-      text-transform: uppercase;
-      color: #777a7b;
+      font-weight: 800;
+      font-size: 1.1rem;
+      color: #121212;
+      letter-spacing: -0.04em;
+      line-height: 1.1;
+      margin-bottom: 0.5rem;
     }
 
-    .deeper-card-title {
+    .rec-plan-desc {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-weight: 400;
+      font-size: 0.95rem;
+      color: #121212;
+      line-height: 1.24;
+      margin-bottom: 1.25rem;
+      flex: 1;
+    }
+
+    .rec-plan-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: #121212;
+      color: #fff;
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-weight: 700;
+      font-size: 0.95rem;
+      border: none;
+      border-radius: 40px;
+      padding: 0.85rem 2rem;
+      cursor: pointer;
+      text-decoration: none;
+      transition: opacity 0.15s;
+      align-self: flex-start;
+    }
+    .rec-plan-btn:hover { opacity: 0.8; }
+
+    .plan-cta {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      padding: 3rem 1.5rem;
+      max-width: 680px;
+      margin: 0 auto;
+      text-align: center;
+    }
+
+    .plan-cta-label {
+      font-family: 'aktiv-grotesk', sans-serif;
+      font-weight: 400;
+      font-size: 1rem;
+      color: #666;
+      letter-spacing: 0.02em;
+      margin: 0;
+    }
+
+    .plan-cta-title {
       font-family: 'EditorCondensed', sans-serif;
       font-weight: 700;
-      font-size: 1.35rem;
-      color: var(--text-color);
-      line-height: 1.15;
+      font-size: clamp(2rem, 4vw, 3rem);
+      color: #121212;
+      letter-spacing: -0.02em;
+      line-height: 1;
+      margin: 0 0 1rem;
     }
 
-    .deeper-card-body {
-      font-family: 'aktiv-grotesk', sans-serif;
-      font-size: 0.875rem;
-      color: #555;
-      line-height: 1.55;
+    .plan-cta-img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 8px;
+      margin-bottom: 0.5rem;
     }
 
-    .deeper-card-link {
-      display: inline-block;
-      margin-top: 0.75rem;
-      font-family: 'aktiv-grotesk', sans-serif;
-      font-size: 0.75rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--link-color);
-      text-decoration: none;
+    .plan-cta .rec-plan-btn {
+      align-self: center;
     }
-    .deeper-card-link:hover { text-decoration: underline; }
 
     /* ── Responsive ── */
     /* ── Tablet / narrow two-column ── */
@@ -1095,23 +1309,19 @@ app.get('/', async (req, res) => {
         height: 18px;
       }
 
-      .page-deeper {
-        padding: 2.5rem 1.25rem 3.5rem;
-      }
-
-      .deeper-heading {
-        font-size: 1.75rem;
-        margin-bottom: 1.25rem;
-      }
-
-      .deeper-grid {
-        grid-template-columns: 1fr;
-        gap: 1rem;
-      }
+      .deeper-date { padding: 2rem 1.5rem 0; }
+      .deeper-divider { margin: 0.75rem 1.5rem; }
+      .deeper-plan-title { font-size: clamp(2.5rem, 10vw, 6rem); padding: 1rem 1.5rem 0; }
+      .deeper-plan-ref { padding: 1rem 1.5rem 0; }
+      .deeper-subtitle { padding: 1rem 1.5rem 0; }
+      .deeper-body { padding: 0 1.5rem; }
+      .deeper-pullquote { padding: 2rem 1.5rem; }
+      .rec-plans { padding: 2rem 1.5rem 3rem; }
+      .rec-plans-grid { grid-template-columns: repeat(2, 1fr); gap: 1.5rem; }
     }
 
-    /* ── Stack vertical (580px) — panels go top/bottom ── */
-    @media (max-width: 580px) {
+    /* ── Stack vertical (1024px) — panels go top/bottom ── */
+    @media (max-width: 1024px) {
       .page-hero {
         flex-direction: column;
         height: auto;
@@ -1426,6 +1636,17 @@ app.get('/', async (req, res) => {
         }, 200);
       });
     })();
+
+    document.addEventListener('click', function(e) {
+      var link = e.target.closest('a[href="#go-deeper"]');
+      if (link) {
+        e.preventDefault();
+        var target = document.getElementById('go-deeper');
+        if (target) {
+          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+      }
+    });
   </script>
 
   <div class="page-hero">
@@ -1502,29 +1723,101 @@ app.get('/', async (req, res) => {
 
   </div>
 
-  <!-- Go Deeper section -->
+  <!-- Go Deeper section — editorial layout -->
   <section id="go-deeper" class="page-deeper">
-    <h2 class="deeper-heading">Go Deeper</h2>
-    <div class="deeper-grid">
-      <div class="deeper-card">
-        <span class="deeper-card-label">Reading Plan</span>
-        <span class="deeper-card-title">Faith &amp; Peace</span>
-        <p class="deeper-card-body">Explore what it means to be justified through faith and find peace with God through a 5-day plan.</p>
-        <a class="deeper-card-link" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start Plan →</a>
-      </div>
-      <div class="deeper-card">
-        <span class="deeper-card-label">Context</span>
-        <span class="deeper-card-title">Romans 5 in Full</span>
-        <p class="deeper-card-body">Read the complete chapter to understand the full arc of Paul's argument about grace and reconciliation.</p>
-        <a class="deeper-card-link" href="https://www.bible.com/bible/111/ROM.5" target="_blank" rel="noopener">Read Chapter →</a>
-      </div>
-      <div class="deeper-card">
-        <span class="deeper-card-label">Verse</span>
-        <span class="deeper-card-title">${reference}</span>
-        <p class="deeper-card-body">${verseText}</p>
-        <a class="deeper-card-link" href="${sourceUrl}" target="_blank" rel="noopener">View on YouVersion →</a>
+
+    <h2 class="deeper-plan-title">Everyone is a Moon</h2>
+    <p class="deeper-subtitle">Excerpt from <em>The Last Supper on the Moon</em> by Levi Lusko</p>
+
+    <div class="deeper-image">
+      <img src="/public/images/moon.png" alt="Close-up of the moon's cratered surface" />
+    </div>
+
+    <div class="deeper-body">
+      <p>Did you know you have only ever seen one side of the moon? Though it orbits around the earth, the same side faces us the whole time. It technically does rotate on its twenty-seven-day journey around our planet, but because it is tidally locked to earth, it manages to keep its rear away from us at all times. Scientists call this synchronous rotation. Like a servant before a king, the moon never turns its back on us.</p>
+      <p>What is called \u201cthe far side of the moon\u201d or \u201cthe dark side of the moon\u201d is always hidden. Humans laid eyes on it for the first time during Apollo 8. This side of the moon is pocked by craters far more extreme than those on the side we see in the sky every night. One reason for this is obvious: as long as it has hung in the sky, the side pointing away from earth gets the brunt of any asteroids coming our way, like a bodyguard taking a bullet for the one under their protection. The earth returns the favor, acting as a shield for much of the space debris coming from our direction that would slam into the moon.</p>
+      <p>The moon is one-fourth the size of the earth but is big for a moon. Its mysterious backside has mountain ranges taller than the Himalayas. There are craters. Lots of craters. There are craters within craters within craters. Some are only an inch, and some go down a mile. There are craters so big the Grand Canyon could fit inside. One known crater is eighty-five miles wide and almost thirty thousand feet deep.</p>
+      <p>I find it extremely symbolic that the moon keeps the most damaged (and interesting) side out of sight like so many of us.</p>
+    </div>
+
+    <div class="deeper-video">
+      <video autoplay muted loop playsinline controls>
+        <source src="/public/images/videoplayback.mp4" type="video/mp4">
+      </video>
+    </div>
+
+    <p class="deeper-pullquote">Mark Twain once said, \u201cEveryone is a moon and has a dark side which he never shows to anybody.\u201d</p>
+
+    <div class="deeper-body">
+      <p>Extreme situations can lead to deeper happiness and more profound joy. What makes you weird is also what makes you wonderful. Your quirks and curiosities are packed full of potential. Your pain can make you powerful. Extreme gratitude will be the result of learning to embrace\u2014and trusting God to unleash\u2014the hidden potential of the dark side of your moon.</p>
+      <p>Aren\u2019t you exhausted from sucking in and spinning around in every different situation and social media post to keep the dark side of your moon safely hidden and out of sight? I\u2019m not talking about putting your best foot forward; I\u2019m talking about that hidden, horrible secret you have carried for so long: that (you\u2019re pretty sure) there is something wrong with you. If people saw the real you, you think, they wouldn\u2019t want anything to do with you. So rather than being rejected, you just pretend.</p>
+      <p>But you don\u2019t have to do that. Your character\u2019s craters, chasms, and canyons give texture and color and complexity that sparkle in your heavenly Father\u2019s eyes.</p>
+    </div>
+
+    <div class="deeper-image">
+      <img src="/public/images/moon-craters.jpg" alt="The far side of the moon" />
+    </div>
+
+    <p class="deeper-pullquote">\u201cBlessed are the poor in spirit, for theirs is the kingdom of heaven. Blessed are those who mourn, for they shall be comforted. Blessed are the meek, for they shall inherit the earth. Blessed are those who hunger and thirst for righteousness, for they shall be filled.\u201d<br><span style="font-weight: 400; font-size: 0.7em; letter-spacing: 0;">(Matt. 5:3\u20138 NKJV)</span></p>
+
+    <div class="deeper-body">
+      <p>As you look full in His wonderful face, I believe you will stop feeling the need to keep the comet-strewn darkness of your shadow side hidden from sight. You\u2019ll step into the light. Then, and only then, will you discover that God is not afraid of what is behind you. He plans to address what is sinful, mend what is broken, and fill what is empty. He has a plan to use all of you\u2014not just the curated parts you currently feel comfortable letting the world see. He is all around you and already knows about the dark side of your moon.</p>
+    </div>
+
+    <div class="deeper-image">
+      <img src="/public/images/landscape-wide.jpg" alt="Dramatic landscape" />
+    </div>
+
+    <p class="deeper-pullquote">The moon is one-fourth the size of the earth but is big for a moon. Its mysterious backside has mountain ranges taller than the Himalayas. There are craters.</p>
+
+    <div class="deeper-body deeper-body-light" style="padding-bottom: 4rem;">
+      <p>I find it extremely symbolic that the moon keeps the most damaged (and interesting) side out of sight like so many of us.</p>
+      <p>Mark Twain once said, \u201cEveryone is a moon and has a dark side which he never shows to anybody.\u201d</p>
+      <p>The irony, of course, is that even though the dark side is where damage has happened, it is also where the highest heights are located. Highlands rise higher above the surface there than on the near side. And craters plunge low. Craters, after all, are just mountains in reverse.</p>
+      <p>The pockmarks and wounds you carry around inside and show to no one are not only where the most damage has happened; they are where your greatest potential strengths lie. As they say, the cracks are what let the light in.</p>
+    </div>
+
+    <div class="plan-cta">
+      <p class="plan-cta-label">Excerpt from Day 1 of</p>
+      <h3 class="plan-cta-title">The Last Supper on the Moon</h3>
+      <img class="plan-cta-img" src="/public/images/plan-hero.png" alt="The Last Supper on the Moon — 5-Day Reading Plan" />
+      <a class="rec-plan-btn" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start Plan</a>
+    </div>
+
+    <div class="deeper-image">
+      <img src="/public/images/landscape-dark.jpg" alt="Mountain landscape" />
+    </div>
+
+    <div class="rec-plans">
+      <h3 class="rec-plans-heading">Recommended Plans</h3>
+      <div class="rec-plans-grid">
+        <div class="rec-plan-card">
+          <img class="rec-plan-img" src="/public/images/plan-1.jpg" alt="Living Changed Purpose" />
+          <span class="rec-plan-title">Living Changed Purpose</span>
+          <p class="rec-plan-desc">Discover how to live with renewed purpose and align your daily life with God\u2019s calling.</p>
+          <a class="rec-plan-btn" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start</a>
+        </div>
+        <div class="rec-plan-card">
+          <img class="rec-plan-img" src="/public/images/plan-2.jpg" alt="Freedom" />
+          <span class="rec-plan-title">Freedom</span>
+          <p class="rec-plan-desc">A 5-day devotional exploring the freedom found through faith and God\u2019s unending grace.</p>
+          <a class="rec-plan-btn" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start</a>
+        </div>
+        <div class="rec-plan-card">
+          <img class="rec-plan-img" src="/public/images/plan-3.jpg" alt="World in Crisis" />
+          <span class="rec-plan-title">World in Crisis</span>
+          <p class="rec-plan-desc">Find encouragement and hope in Scripture during seasons of uncertainty and hardship.</p>
+          <a class="rec-plan-btn" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start</a>
+        </div>
+        <div class="rec-plan-card">
+          <img class="rec-plan-img" src="/public/images/plan-4.jpg" alt="The Pursuit" />
+          <span class="rec-plan-title">The Pursuit</span>
+          <p class="rec-plan-desc">Chase after the heart of God with this plan on pursuing deeper intimacy with your Creator.</p>
+          <a class="rec-plan-btn" href="https://www.bible.com/reading-plans" target="_blank" rel="noopener">Start</a>
+        </div>
       </div>
     </div>
+
   </section>
 
   ${layout.footerHTML}
