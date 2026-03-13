@@ -1004,14 +1004,12 @@ app.get('/', async (req, res) => {
     .deeper-video {
       width: 100%;
       margin: 3rem 0 4rem;
-      overflow: hidden;
     }
 
     .deeper-video video {
       width: 100%;
       height: auto;
       display: block;
-      object-fit: cover;
       max-height: 700px;
     }
 
@@ -1663,14 +1661,15 @@ app.get('/', async (req, res) => {
           </div>
 
           <p class="votd-verse" style="--verse-scale: ${
-            verseText.length < 60 ? 1.45
-            : verseText.length < 100 ? 1.25
-            : verseText.length < 150 ? 1.1
-            : verseText.length < 200 ? 0.88
-            : verseText.length < 260 ? 0.72
-            : verseText.length < 340 ? 0.58
-            : verseText.length < 450 ? 0.48
-            : 0.4
+            verseText.length < 50 ? 1.45
+            : verseText.length < 80 ? 1.25
+            : verseText.length < 110 ? 1.05
+            : verseText.length < 140 ? 0.88
+            : verseText.length < 180 ? 0.75
+            : verseText.length < 230 ? 0.65
+            : verseText.length < 300 ? 0.55
+            : verseText.length < 400 ? 0.46
+            : 0.38
           }; text-wrap: ${verseText.length < 180 ? 'balance' : 'pretty'}">${verseText}</p>
 
           <p class="votd-reference">
