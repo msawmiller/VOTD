@@ -1038,6 +1038,7 @@ app.get('/', async (req, res) => {
       line-height: 1;
       letter-spacing: -0.03em;
       padding: 4rem 1.5rem;
+      text-wrap: balance;
     }
 
     .deeper-body-light p {
@@ -1769,7 +1770,7 @@ app.get('/', async (req, res) => {
       <img src="/public/images/moon-craters.jpg" alt="The far side of the moon" />
     </div>
 
-    <p class="deeper-pullquote">\u201cBlessed are the poor in spirit, for theirs is the kingdom of heaven. Blessed are those who mourn, for they shall be comforted. Blessed are the meek, for they shall inherit the earth. Blessed are those who hunger and thirst for righteousness, for they shall be filled.\u201d<br><span style="font-weight: 400; font-size: 0.7em; letter-spacing: 0;">(Matt. 5:3\u20138 NKJV)</span></p>
+    <p class="deeper-pullquote">\u201cBlessed are the poor in spirit, for theirs is the kingdom of heaven. Blessed are those who mourn, for they shall be comforted. Blessed are the meek, for they shall inherit the earth. Blessed are those who hunger and thirst for righteousness, for they shall be&nbsp;filled.\u201d<br><span style="font-weight: 400; font-size: 0.7em; letter-spacing: 0;">(Matt. 5:3\u20138 NKJV)</span></p>
 
     <div class="deeper-body">
       <p>As you look full in His wonderful face, I believe you will stop feeling the need to keep the comet-strewn darkness of your shadow side hidden from sight. You\u2019ll step into the light. Then, and only then, will you discover that God is not afraid of what is behind you. He plans to address what is sinful, mend what is broken, and fill what is empty. He has a plan to use all of you\u2014not just the curated parts you currently feel comfortable letting the world see. He is all around you and already knows about the dark side of your moon.</p>
