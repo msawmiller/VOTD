@@ -1112,10 +1112,10 @@ app.get('/', async (req, res) => {
       color: #fff;
       font-family: 'aktiv-grotesk', sans-serif;
       font-weight: 700;
-      font-size: 0.95rem;
+      font-size: 0.8rem;
       border: none;
       border-radius: 40px;
-      padding: 0.85rem 2rem;
+      padding: 0.55rem 1.4rem;
       cursor: pointer;
       text-decoration: none;
       transition: opacity 0.15s;
@@ -1166,6 +1166,12 @@ app.get('/', async (req, res) => {
     }
 
     /* ── Responsive ── */
+    @media (max-width: 1280px) {
+      .bar-label {
+        font-size: 0.85rem;
+      }
+    }
+
     /* ── Tablet / narrow two-column ── */
     @media (max-width: 1024px) and (min-width: 769px) {
       .panel-content {
@@ -1309,7 +1315,7 @@ app.get('/', async (req, res) => {
 
       .deeper-date { padding: 2rem 1.5rem 0; }
       .deeper-divider { margin: 0.75rem 1.5rem; }
-      .deeper-plan-title { font-size: clamp(2.5rem, 10vw, 6rem); padding: 1rem 1.5rem 0; }
+      .deeper-plan-title { font-size: clamp(2.5rem, 10vw, 6rem); padding: 3.5rem 1.5rem 0; }
       .deeper-plan-ref { padding: 1rem 1.5rem 0; }
       .deeper-subtitle { padding: 1rem 1.5rem 0; }
       .deeper-body { padding: 0 1.5rem; }
@@ -1354,6 +1360,11 @@ app.get('/', async (req, res) => {
         padding: 1.75rem 1.5rem 1rem;
         justify-content: center;
         overflow: visible;
+      }
+
+      .bar-label {
+        font-size: 0.7rem;
+        letter-spacing: 0.02em;
       }
     }
 
