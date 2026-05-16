@@ -8,7 +8,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3001;
 
 const BIBLE_VERSION_ID = 111; // NIV
 const VOTD_API = 'https://bible.youversionapi.com/3.3/verse_of_the_day.json';
@@ -431,6 +431,8 @@ function isCacheStale() {
 app.use('/fonts', express.static(join(__dirname, 'fonts')));
 app.use('/public', express.static(join(__dirname, 'public')));
 app.use('/images', express.static(join(__dirname, 'images')));
+app.get('/css/bible-chunk1.css', (_req, res) => res.sendFile(join(__dirname, 'bible-chunk1.css')));
+app.get('/css/bible-chunk2.css', (_req, res) => res.sendFile(join(__dirname, 'bible-chunk2.css')));
 
 app.get('/api/search', (req, res) => {
   const q = req.query.q || '';
@@ -466,8 +468,8 @@ app.get('/', async (req, res) => {
 
   <!-- bible.com fonts & styles -->
   <link rel="stylesheet" href="https://use.typekit.net/wfn2tts.css" />
-  <link rel="stylesheet" href="https://www.bible.com/_next/static/chunks/5754d9b1c1415c11.css" />
-  <link rel="stylesheet" href="https://www.bible.com/_next/static/chunks/bbf1b40dcd92e542.css" />
+  <link rel="stylesheet" href="/css/bible-chunk1.css" />
+  <link rel="stylesheet" href="/css/bible-chunk2.css" />
 
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -1166,6 +1168,150 @@ app.get('/', async (req, res) => {
       align-self: center;
     }
 
+    /* ── Share image modal ── */
+    .share-modal-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .share-modal-overlay.active {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .share-modal-overlay.visible {
+      opacity: 1;
+    }
+
+    .share-modal-bg {
+      position: absolute;
+      inset: 0;
+      background: #101110;
+    }
+
+    .share-modal-left-scrim {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 8%;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1;
+    }
+
+    .share-modal-close {
+      position: absolute;
+      top: 20px;
+      left: 24px;
+      z-index: 10;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 12px;
+      color: #fff;
+    }
+
+    .share-modal-close svg {
+      width: 28px;
+      height: 28px;
+    }
+
+    .share-modal-img-wrap {
+      position: relative;
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      max-width: 42%;
+      max-height: 85vh;
+    }
+
+    .share-modal-img-wrap img {
+      max-width: 100%;
+      max-height: 85vh;
+      object-fit: contain;
+      border-radius: 2px;
+      box-shadow: 0 8px 60px rgba(0,0,0,0.6);
+    }
+
+    .share-modal-nav {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 10;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 16px;
+      color: rgba(255,255,255,0.7);
+      transition: color 0.2s;
+    }
+
+    .share-modal-nav:hover {
+      color: #fff;
+    }
+
+    .share-modal-nav svg {
+      width: 48px;
+      height: 48px;
+    }
+
+    .share-modal-prev {
+      left: 10%;
+    }
+
+    .share-modal-next {
+      right: 10%;
+    }
+
+    .share-modal-thumbs {
+      position: absolute;
+      bottom: 32px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      gap: 12px;
+    }
+
+    .share-modal-thumb {
+      width: 54px;
+      height: 95px;
+      border-radius: 4px;
+      object-fit: cover;
+      cursor: pointer;
+      border: 1px solid transparent;
+      opacity: 0.5;
+      transition: opacity 0.2s, border-color 0.2s;
+    }
+
+    .share-modal-thumb.active {
+      opacity: 1;
+      border-color: #fff;
+    }
+
+    .share-modal-thumb:hover {
+      opacity: 0.85;
+    }
+
+    @media (max-width: 768px) {
+      .share-modal-img-wrap {
+        max-width: 70%;
+      }
+      .share-modal-prev { left: 2%; }
+      .share-modal-next { right: 2%; }
+      .share-modal-nav svg {
+        width: 32px;
+        height: 32px;
+      }
+      .share-modal-left-scrim { display: none; }
+    }
+
     /* ── Responsive ── */
     @media (max-width: 1280px) {
       .bar-label {
@@ -1658,6 +1804,86 @@ app.get('/', async (req, res) => {
       }
     });
 
+    // Share image modal
+    document.addEventListener('DOMContentLoaded', function() {
+      var modal = document.getElementById('shareModal');
+      if (!modal) return;
+
+      var card = document.querySelector('.share-card');
+      var closeBtn = document.getElementById('shareModalClose');
+      var prevBtn = document.getElementById('shareModalPrev');
+      var nextBtn = document.getElementById('shareModalNext');
+      var mainImg = document.getElementById('shareModalImg');
+      var thumbs = modal.querySelectorAll('.share-modal-thumb');
+      var images = [];
+      thumbs.forEach(function(t) { images.push(t.src); });
+      var current = 0;
+
+      function showImage(idx) {
+        if (idx < 0) idx = images.length - 1;
+        if (idx >= images.length) idx = 0;
+        current = idx;
+        mainImg.src = images[current];
+        thumbs.forEach(function(t, i) {
+          t.classList.toggle('active', i === current);
+        });
+      }
+
+      function openModal() {
+        current = 0;
+        showImage(0);
+        modal.classList.add('active');
+        requestAnimationFrame(function() {
+          requestAnimationFrame(function() {
+            modal.classList.add('visible');
+          });
+        });
+        document.body.style.overflow = 'hidden';
+      }
+
+      function closeModal() {
+        modal.classList.remove('visible');
+        setTimeout(function() {
+          modal.classList.remove('active');
+          document.body.style.overflow = '';
+        }, 300);
+      }
+
+      if (card) {
+        card.addEventListener('click', function(e) {
+          e.preventDefault();
+          e.stopPropagation();
+          openModal();
+        });
+        card.querySelectorAll('a').forEach(function(a) {
+          a.addEventListener('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+        });
+      }
+
+      closeBtn.addEventListener('click', closeModal);
+      modal.querySelector('.share-modal-bg').addEventListener('click', closeModal);
+      modal.querySelector('.share-modal-left-scrim').addEventListener('click', closeModal);
+
+      prevBtn.addEventListener('click', function() { showImage(current - 1); });
+      nextBtn.addEventListener('click', function() { showImage(current + 1); });
+
+      thumbs.forEach(function(t) {
+        t.addEventListener('click', function() {
+          showImage(parseInt(t.dataset.index));
+        });
+      });
+
+      document.addEventListener('keydown', function(e) {
+        if (!modal.classList.contains('active')) return;
+        if (e.key === 'Escape') closeModal();
+        if (e.key === 'ArrowLeft') showImage(current - 1);
+        if (e.key === 'ArrowRight') showImage(current + 1);
+      });
+    });
+
   </script>
 
   <div class="page-hero">
@@ -1833,6 +2059,40 @@ app.get('/', async (req, res) => {
   </section>
 
   ${layout.footerHTML}
+
+  ${(shareImageUrl || imageUrl) ? `
+  <div class="share-modal-overlay" id="shareModal">
+    <div class="share-modal-bg"></div>
+    <div class="share-modal-left-scrim"></div>
+
+    <button class="share-modal-close" id="shareModalClose" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"></line>
+        <line x1="6" y1="6" x2="18" y2="18"></line>
+      </svg>
+    </button>
+
+    <button class="share-modal-nav share-modal-prev" id="shareModalPrev" aria-label="Previous">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+
+    <div class="share-modal-img-wrap">
+      <img id="shareModalImg" src="${shareImageUrl || imageUrl}" alt="Verse of the Day share image" />
+    </div>
+
+    <button class="share-modal-nav share-modal-next" id="shareModalNext" aria-label="Next">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="9 6 15 12 9 18"></polyline>
+      </svg>
+    </button>
+
+    <div class="share-modal-thumbs" id="shareModalThumbs">
+      ${shareImageUrl ? `<img class="share-modal-thumb active" src="${shareImageUrl}" data-index="0" alt="Artwork image" />` : ''}
+      ${imageUrl ? `<img class="share-modal-thumb${!shareImageUrl ? ' active' : ''}" src="${imageUrl}" data-index="${shareImageUrl ? 1 : 0}" alt="Background image" />` : ''}
+    </div>
+  </div>` : ''}
 
 </body>
 </html>`);
