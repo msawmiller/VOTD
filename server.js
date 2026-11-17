@@ -11,7 +11,6 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 const BIBLE_VERSION_ID = 111; // NIV
-const VOTD_API = 'https://bible.youversionapi.com/3.3/verse_of_the_day.json';
 const VERSES_API = 'https://bible.youversionapi.com/3.3/verses.json';
 const VOTD_PAGE = 'https://www.bible.com/verse-of-the-day';
 const MOMENTS_API = 'https://moments.youversionapi.com/3.1/votd.json?language_tag=en';
@@ -308,12 +307,14 @@ async function fetchVOTD(targetDate) {
   const dateObj = targetDate ? new Date(targetDate + 'T00:00:00') : new Date();
   const day = dayOfYear(dateObj);
 
-  const calRes = await fetch(VOTD_API);
+  const calRes = await fetch(MOMENTS_API, { headers: YV_HEADERS });
   const calJson = await calRes.json();
-  const entry = calJson.response.data.find((d) => d.day === day);
+  const calendar = Array.isArray(calJson.response?.data) ? calJson.response.data : [];
+  const entry = calendar.find((d) => d.day === day);
   if (!entry) throw new Error(`No VOTD entry found for day ${day}`);
 
-  const usfm = entry.references.join('+');
+  const usfmRefs = entry.usfm;
+  const usfm = usfmRefs.join('+');
 
   const verseUrl = `${VERSES_API}?id=${BIBLE_VERSION_ID}&references[]=${encodeURIComponent(usfm)}`;
   const verseRes = await fetch(verseUrl);
@@ -324,18 +325,8 @@ async function fetchVOTD(targetDate) {
   const reference = verseData.reference.human;
   const verseText = stripHtml(verseData.content);
 
-  // Step 1: Get the official prerendered image_id from moments API (anchors both images)
-  const usfmRefs = entry.references;
-  let momentsImageId = null;
-  try {
-    const momentsRes = await fetch(MOMENTS_API, { headers: YV_HEADERS });
-    const momentsJson = await momentsRes.json();
-    const momentsList = momentsJson.response?.data ?? [];
-    const todayMoment = momentsList.find((d) => d.day === day);
-    momentsImageId = todayMoment?.image_id ?? null;
-  } catch (e) {
-    console.warn('Could not fetch moments API:', e.message);
-  }
+  // Step 1: The official prerendered image_id comes from the same moments entry (anchors both images)
+  const momentsImageId = entry.image_id ?? null;
 
   // Step 2: Share card — use the moments prerendered image (with text/artwork)
   let shareImageUrl = null;
